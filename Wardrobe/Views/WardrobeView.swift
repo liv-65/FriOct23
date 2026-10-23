@@ -184,14 +184,12 @@ struct ItemEditView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
 
-                if item.hasCutout {
-                    Picker("显示", selection: $item.useCutout) {
-                        Text("抠图").tag(true)
-                        Text("原图").tag(false)
+                HStack {
+                    RotateButtons(item: item)
+                    Spacer()
+                    if !item.hasCutout && item.hasOriginal {
+                        Button("重新抠图") { queue.retry(item) }
                     }
-                    .pickerStyle(.segmented)
-                } else {
-                    Button("重新抠图") { queue.retry(item) }
                 }
 
                 ClassificationForm(categoryID: $item.categoryID, subcategoryID: $item.subcategoryID, tagIDs: $item.tagIDs)

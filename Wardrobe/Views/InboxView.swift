@@ -172,13 +172,9 @@ private struct SingleClassifyView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
 
-                if item.hasCutout {
-                    Picker("显示", selection: $item.useCutout) {
-                        Text("抠图").tag(true)
-                        Text("原图").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                } else {
+                RotateButtons(item: item)
+
+                if !item.hasCutout {
                     HStack {
                         Label("没识别出主体，将使用原图", systemImage: "exclamationmark.triangle")
                             .font(.footnote).foregroundStyle(.orange)

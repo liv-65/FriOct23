@@ -9,6 +9,7 @@ final class ProcessingQueue {
     private(set) var isProcessing = false
     private(set) var importTotal = 0
     private(set) var importDone = 0
+    private(set) var rotating: Set<UUID> = []
 
     private let container: ModelContainer
 
@@ -48,19 +49,64 @@ final class ProcessingQueue {
         guard !isProcessing else { return }
         isProcessing = true
         Task {
+            dropLeftoverOriginals()
             await processAll()
             isProcessing = false
         }
     }
 
-    /// 重新抠图（比如之前失败的）
+    /// 重新抠图（之前失败的，原图还在）
     func retry(_ item: ClothingItem) {
-        ImageStore.delete([item.cutoutFile, item.cutoutThumb])
-        item.cutoutFile = nil
-        item.cutoutThumb = nil
+        guard item.hasOriginal else { return }
         item.status = .pending
         try? container.mainContext.save()
         start()
+    }
+
+    /// 顺时针或逆时针转 90°，直接改写存储的图片
+    func rotate(_ item: ClothingItem, clockwise: Bool) async {
+        guard !rotating.contains(item.id), let file = item.displayFile else { return }
+        rotating.insert(item.id)
+        defer { rotating.remove(item.id) }
+
+        let isCutout = item.hasCutout
+        let result = await Task.detached(priority: .userInitiated) { () -> (String, String?)? in
+            autoreleasepool {
+                guard let image = ImageStore.loadUncached(file) else { return nil }
+                let rotated = image.rotated90(clockwise: clockwise)
+                let thumb = rotated.resized(maxSide: 400)
+                if isCutout {
+                    guard let full = try? ImageStore.savePNG(rotated) else { return nil }
+                    return (full, try? ImageStore.savePNG(thumb))
+                } else {
+                    guard let full = try? ImageStore.saveJPEG(rotated, quality: 0.9) else { return nil }
+                    return (full, try? ImageStore.saveJPEG(thumb, quality: 0.8))
+                }
+            }
+        }.value
+
+        guard let result, !item.isDeleted, item.modelContext != nil else { return }
+        if isCutout {
+            ImageStore.delete([item.cutoutFile, item.cutoutThumb])
+            item.cutoutFile = result.0
+            item.cutoutThumb = result.1
+        } else {
+            ImageStore.delete([item.originalFile, item.originalThumb])
+            item.originalFile = result.0
+            item.originalThumb = result.1
+        }
+        try? container.mainContext.save()
+    }
+
+    /// 旧版本抠图成功后还留着原图，这里清掉
+    private func dropLeftoverOriginals() {
+        let context = container.mainContext
+        let descriptor = FetchDescriptor<ClothingItem>(
+            predicate: #Predicate { $0.cutoutFile != nil && ($0.originalFile != "" || $0.originalThumb != nil) }
+        )
+        guard let items = try? context.fetch(descriptor), !items.isEmpty else { return }
+        for item in items { item.dropOriginal() }
+        try? context.save()
     }
 
     private func processAll() async {
@@ -75,8 +121,9 @@ final class ProcessingQueue {
             guard let item = try? context.fetch(descriptor).first else { break }
 
             let file = item.originalFile
+            let needsThumb = item.originalThumb == nil
             let result = await Task.detached(priority: .utility) {
-                autoreleasepool { Self.process(file) }
+                autoreleasepool { Self.process(file, needsThumb: needsThumb) }
             }.value
 
             // 处理期间被删了就丢掉结果
@@ -84,15 +131,15 @@ final class ProcessingQueue {
                 ImageStore.delete([result.originalThumb, result.cutout, result.cutoutThumb])
                 continue
             }
-            if item.originalThumb == nil {
-                item.originalThumb = result.originalThumb
+            if let cutout = result.cutout {
+                item.cutoutFile = cutout
+                item.cutoutThumb = result.cutoutThumb
+                item.dropOriginal()
+                item.status = .unclassified
             } else {
-                ImageStore.delete([result.originalThumb])
+                if let thumb = result.originalThumb { item.originalThumb = thumb }
+                item.status = .failed
             }
-            item.cutoutFile = result.cutout
-            item.cutoutThumb = result.cutoutThumb
-            item.useCutout = result.cutout != nil
-            item.status = result.cutout == nil ? .failed : .unclassified
             try? context.save()
         }
     }
@@ -103,13 +150,16 @@ final class ProcessingQueue {
         var cutoutThumb: String?
     }
 
-    nonisolated private static func process(_ file: String) -> Result {
+    nonisolated private static func process(_ file: String, needsThumb: Bool) -> Result {
         var result = Result()
-        guard let image = ImageStore.loadUncached(file) else { return result }
-        result.originalThumb = try? ImageStore.saveJPEG(image.resized(maxSide: 400), quality: 0.8)
+        guard !file.isEmpty, let image = ImageStore.loadUncached(file) else { return result }
         if let cut = try? BackgroundRemover.cutout(image) {
             result.cutout = try? ImageStore.savePNG(cut.resized(maxSide: 1200))
             result.cutoutThumb = try? ImageStore.savePNG(cut.resized(maxSide: 400))
+        }
+        // 抠图失败时才需要原图缩略图
+        if result.cutout == nil && needsThumb {
+            result.originalThumb = try? ImageStore.saveJPEG(image.resized(maxSide: 400), quality: 0.8)
         }
         return result
     }

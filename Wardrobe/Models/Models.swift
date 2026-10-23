@@ -13,11 +13,11 @@ final class ClothingItem {
     var id: UUID = UUID()
     var createdAt: Date = Date()
     var statusRaw: Int = ItemStatus.pending.rawValue
+    /// 原图只在抠图前和抠图失败时保留，抠图成功后删除（置为空字符串）
     var originalFile: String = ""
     var originalThumb: String?
     var cutoutFile: String?
     var cutoutThumb: String?
-    var useCutout: Bool = true
     var categoryID: UUID?
     var subcategoryID: UUID?
     var tagIDs: [UUID] = []
@@ -34,15 +34,21 @@ final class ClothingItem {
 
     var hasCutout: Bool { cutoutFile != nil }
 
-    var displayFile: String {
-        (useCutout ? cutoutFile : nil) ?? originalFile
-    }
+    var hasOriginal: Bool { !originalFile.isEmpty }
 
-    var displayThumb: String? {
-        (useCutout ? cutoutThumb : nil) ?? originalThumb
-    }
+    var displayFile: String? { cutoutFile ?? (hasOriginal ? originalFile : nil) }
 
-    var allFiles: [String?] { [originalFile, originalThumb, cutoutFile, cutoutThumb] }
+    var displayThumb: String? { cutoutThumb ?? originalThumb }
+
+    var allFiles: [String?] { [hasOriginal ? originalFile : nil, originalThumb, cutoutFile, cutoutThumb] }
+
+    /// 抠图成功后把原图删掉，节省空间
+    func dropOriginal() {
+        guard hasCutout, hasOriginal || originalThumb != nil else { return }
+        ImageStore.delete([hasOriginal ? originalFile : nil, originalThumb])
+        originalFile = ""
+        originalThumb = nil
+    }
 }
 
 /// 分类：parentID 为空是大类，否则是某个大类下的小类

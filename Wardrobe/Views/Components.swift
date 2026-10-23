@@ -129,6 +129,25 @@ struct ItemCell: View {
     }
 }
 
+struct RotateButtons: View {
+    let item: ClothingItem
+    @Environment(ProcessingQueue.self) private var queue
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button { Task { await queue.rotate(item, clockwise: false) } } label: {
+                Label("向左转", systemImage: "rotate.left")
+            }
+            Button { Task { await queue.rotate(item, clockwise: true) } } label: {
+                Label("向右转", systemImage: "rotate.right")
+            }
+            if queue.rotating.contains(item.id) { ProgressView() }
+        }
+        .buttonStyle(.bordered)
+        .disabled(queue.rotating.contains(item.id) || item.displayFile == nil)
+    }
+}
+
 /// 一个带输入框的弹窗，新建和改名都用它
 struct NameAlert: ViewModifier {
     let title: String

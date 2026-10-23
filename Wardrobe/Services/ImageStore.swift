@@ -55,6 +55,19 @@ enum ImageStore {
 }
 
 extension UIImage {
+    func rotated90(clockwise: Bool) -> UIImage {
+        let newSize = CGSize(width: size.height, height: size.width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: newSize, format: format).image { ctx in
+            let c = ctx.cgContext
+            c.translateBy(x: newSize.width / 2, y: newSize.height / 2)
+            c.rotate(by: clockwise ? .pi / 2 : -.pi / 2)
+            draw(in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
+        }
+    }
+
     /// 等比缩小到最长边不超过 maxSide，同时把方向摆正
     func resized(maxSide: CGFloat) -> UIImage {
         let scale = min(1, maxSide / max(size.width, size.height))

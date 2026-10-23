@@ -115,7 +115,7 @@ struct OutfitPickerView: View {
         let index = CategoryIndex(categories)
         let files = selected.compactMap { byID[$0] }
             .sorted { index.sortKey($0) < index.sortKey($1) }
-            .map(\.displayFile)
+            .compactMap(\.displayFile)
         let rendered = await Task.detached(priority: .userInitiated) { () -> (String?, String?) in
             autoreleasepool {
                 let images = files.compactMap { ImageStore.loadUncached($0)?.resized(maxSide: 600) }
