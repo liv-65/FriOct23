@@ -1,0 +1,4 @@
+build/
+# 由 xcodegen 根据 project.yml 生成，含个人 Team ID 和用户名
+*.xcodeproj/
+.DS_Store
